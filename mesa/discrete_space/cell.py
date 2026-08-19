@@ -167,12 +167,12 @@ class Cell:
         except ValueError as e:
             raise AgentMissingException(agent, self.coordinate) from e
 
-        self.empty = self.is_empty
+        self.empty = len(self._agents) == 0
 
     @property
     def is_empty(self) -> bool:
         """Returns a bool of the contents of a cell."""
-        return len(self._agents) == 0
+        return self.empty
 
     @property
     def is_full(self) -> bool:
