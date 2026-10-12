@@ -1,6 +1,8 @@
 """Unit tests for mesa_logging."""
 
+import ast
 import logging
+import pathlib
 
 import pytest
 
@@ -66,3 +68,39 @@ def test_caplog_capture_after_teardown(caplog):
     logger.setLevel(logging.INFO)
     logger.info("testing caplog propagation")
     assert "testing caplog propagation" in caplog.text
+
+
+def test_examples_do_not_configure_logging_at_import():
+    """No example module may configure logging at import time. See #3935.
+
+    `log_to_stderr()` defaults to `propagate=False` and applies it to the MESA
+    root logger, so calling it at module level leaks that setting into every
+    later consumer in the same process. Anything that imports the module --
+    `solara run`, a notebook, or the test suite -- silently loses log
+    propagation, which is what broke `caplog` in unrelated tests.
+
+    This is a static check so it stays fast and does not depend on import order.
+    """
+    configures_logging = {"log_to_stderr", "log_to_file", "basicConfig", "dictConfig"}
+    examples = pathlib.Path(mesa_logging.__file__).parent / "examples"
+
+    offenders = []
+    for path in sorted(examples.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:  # module level only
+            if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+                continue
+            func = node.value.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else getattr(func, "id", "")
+            )
+            if name in configures_logging:
+                rel = path.relative_to(examples)
+                offenders.append(f"{rel.as_posix()}:{node.lineno}: {name}()")
+
+    assert not offenders, (
+        "example modules must not configure logging at import time: "
+        + ", ".join(offenders)
+    )
