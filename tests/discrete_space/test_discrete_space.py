@@ -676,6 +676,8 @@ def test_cell():
     cell_zero = Cell((1,), capacity=0, random=random.Random())
     with pytest.raises(CellFullException):
         cell_zero.add_agent(CellAgent(model))
+    assert cell_zero.empty is True
+    assert cell_zero.is_empty is True
 
 
 def test_cell_empty_attribute_initialized():
@@ -1000,6 +1002,21 @@ def test_property_layer_can_be_readded_after_removal(method):
     assert cell.sugar == 2
     cell.sugar = 3
     assert grid.sugar[1, 1] == 3
+
+
+def test_property_layer_cannot_remove_empty():
+    """Ensure remove_property_layer rejects removing the built-in 'empty' layer."""
+    grid = OrthogonalMooreGrid((3, 3), random=random.Random(42))
+    with pytest.raises(
+        ValueError, match="Cannot remove the built-in 'empty' property layer"
+    ):
+        grid.remove_property_layer("empty")
+
+    assert "empty" in grid.property_layers
+    assert hasattr(grid, "empty")
+    assert hasattr(grid.cell_klass, "empty")
+    assert "empty" in grid.cell_klass.property_layers
+    assert hasattr(grid._cells[(1, 1)], "empty")
 
 
 @pytest.mark.parametrize(
@@ -1737,3 +1754,26 @@ def test_voronoi_int_capacity_enforced_at_runtime() -> None:
     a1.move_to(cell)
     with pytest.raises(CellFullException):
         a2.move_to(cell)
+
+
+def test_cell_neighborhood_self_loop_bug_3885():
+    """Verifying radius=1 neighborhood excludes self on self-connected cells when include_center=False (#3885)."""
+    # 1. Torus Grid (1xN ring wrapping around)
+    grid = OrthogonalVonNeumannGrid((5, 1), torus=True, random=random.Random(42))
+    cell = grid._cells[(2, 0)]
+    neighborhood = [
+        c.coordinate for c in cell.get_neighborhood(radius=1, include_center=False)
+    ]
+    assert cell.coordinate not in neighborhood, (
+        f"Cell {cell.coordinate} found in its own neighborhood!"
+    )
+
+    # 2. Network with a self-loop
+    net = Network(nx.Graph([(0, 1), (1, 1), (1, 2)]), random=random.Random(42))
+    net_cell = net._cells[1]
+    net_neighborhood = [
+        c.coordinate for c in net_cell.get_neighborhood(radius=1, include_center=False)
+    ]
+    assert net_cell.coordinate not in net_neighborhood, (
+        f"Node {net_cell.coordinate} found in its own neighborhood!"
+    )
